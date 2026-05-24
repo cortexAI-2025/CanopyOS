@@ -1,12 +1,28 @@
-import { type ClassValue } from 'clsx'
+// ClassValue covers all the types that Tailwind class utilities accept
+export type ClassValue =
+  | string
+  | number
+  | boolean
+  | null
+  | undefined
+  | ClassValue[]
+  | Record<string, boolean | null | undefined>
 
-// Simple className merger without clsx dependency
+// Simple className merger without external dependencies
 export function cn(...inputs: ClassValue[]): string {
-  return inputs
-    .flat()
-    .filter(Boolean)
-    .join(' ')
-    .trim()
+  function flatten(val: ClassValue): string[] {
+    if (!val) return []
+    if (typeof val === 'string') return [val]
+    if (typeof val === 'number') return [String(val)]
+    if (Array.isArray(val)) return val.flatMap(flatten)
+    if (typeof val === 'object') {
+      return Object.entries(val)
+        .filter(([, v]) => Boolean(v))
+        .map(([k]) => k)
+    }
+    return []
+  }
+  return inputs.flatMap(flatten).join(' ').trim()
 }
 
 // Format date to readable string
