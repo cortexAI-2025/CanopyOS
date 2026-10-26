@@ -35,3 +35,14 @@ CREATE TABLE "PlantLog" (
 );
 CREATE INDEX "PlantLog_plantId_createdAt_idx" ON "PlantLog"("plantId","createdAt");
 ALTER TABLE "PlantLog" ADD CONSTRAINT "PlantLog_plantId_fkey" FOREIGN KEY ("plantId") REFERENCES "Plant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+CREATE TABLE "PlantPhoto" (
+  "id" TEXT NOT NULL,
+  "plantId" TEXT NOT NULL,
+  "fileName" TEXT NOT NULL,
+  "mimeType" TEXT NOT NULL,
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "PlantPhoto_pkey" PRIMARY KEY ("id")
+);
+CREATE INDEX "PlantPhoto_plantId_idx" ON "PlantPhoto"("plantId");
+ALTER TABLE "PlantPhoto" ADD CONSTRAINT "PlantPhoto_plantId_fkey" FOREIGN KEY ("plantId") REFERENCES "Plant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
