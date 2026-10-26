@@ -15,6 +15,11 @@ export default function PlantDetailPage() {
   const [plant, setPlant] = useState<Plant | null>(null)
   const [logs, setLogs] = useState<PlantLog[]>([])
   const [notes, setNotes] = useState('')
+  const [ph, setPh] = useState('')
+  const [ec, setEc] = useState('')
+  const [temperature, setTemperature] = useState('')
+  const [humidity, setHumidity] = useState('')
+  const [photoUrl, setPhotoUrl] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -30,12 +35,19 @@ export default function PlantDetailPage() {
 
   async function addLog(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!notes.trim() || busy) return
+    if (busy) return
     setBusy(true); setError('')
     try {
-      const response = await plantsApi.addLog(id, { notes: notes.trim() })
+      const response = await plantsApi.addLog(id, {
+        notes: notes.trim() || undefined,
+        photoUrl: photoUrl.trim() || undefined,
+        ph: ph === '' ? undefined : Number(ph),
+        ec: ec === '' ? undefined : Number(ec),
+        temperature: temperature === '' ? undefined : Number(temperature),
+        humidity: humidity === '' ? undefined : Number(humidity),
+      })
       setLogs(previous => [response.data, ...previous])
-      setNotes('')
+      setNotes(''); setPh(''); setEc(''); setTemperature(''); setHumidity(''); setPhotoUrl('')
     } catch { setError('Observation non enregistrée. Réessayez.') }
     finally { setBusy(false) }
   }
@@ -50,8 +62,17 @@ export default function PlantDetailPage() {
         <h2 className="text-xl font-semibold mb-4">Nouvelle observation</h2>
         <form onSubmit={addLog}>
           <label htmlFor="notes" className="block mb-2">Notes</label>
-          <textarea id="notes" required maxLength={5000} rows={4} value={notes} onChange={e => setNotes(e.target.value)}
+          <textarea id="notes" maxLength={5000} rows={4} value={notes} onChange={e => setNotes(e.target.value)}
             placeholder="Qu'avez-vous observé aujourd'hui ?" className="w-full rounded-xl border border-gray-600 bg-gray-950 p-3" />
+          <div className="mt-4 grid grid-cols-2 gap-3">
+            <label>pH<input type="number" min="0" max="14" step="0.1" value={ph} onChange={e => setPh(e.target.value)} className="mt-1 w-full rounded-lg bg-gray-950 border border-gray-600 p-3" /></label>
+            <label>EC<input type="number" min="0" step="0.01" value={ec} onChange={e => setEc(e.target.value)} className="mt-1 w-full rounded-lg bg-gray-950 border border-gray-600 p-3" /></label>
+            <label>Température °C<input type="number" step="0.1" value={temperature} onChange={e => setTemperature(e.target.value)} className="mt-1 w-full rounded-lg bg-gray-950 border border-gray-600 p-3" /></label>
+            <label>Humidité %<input type="number" min="0" max="100" step="0.1" value={humidity} onChange={e => setHumidity(e.target.value)} className="mt-1 w-full rounded-lg bg-gray-950 border border-gray-600 p-3" /></label>
+          </div>
+          <label className="mt-4 block">URL de la photo (HTTPS)
+            <input type="url" pattern="https://.*" value={photoUrl} onChange={e => setPhotoUrl(e.target.value)} placeholder="https://…" className="mt-1 w-full rounded-lg bg-gray-950 border border-gray-600 p-3" />
+          </label>
           <button disabled={busy} className="mt-3 rounded-xl bg-emerald-500 px-5 py-3 font-semibold text-gray-950 disabled:opacity-50">{busy ? 'Enregistrement…' : 'Ajouter au journal'}</button>
         </form>
       </section>
