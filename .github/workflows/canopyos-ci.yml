@@ -33,6 +33,10 @@ jobs:
           node-version: '20'
       - run: npm install --no-audit --no-fund
       - run: npx prisma generate
+      - name: Bootstrap legacy schema in disposable test database
+        run: |
+          npx prisma migrate diff --from-empty --to-schema-datamodel prisma/baseline.prisma --script > /tmp/canopyos-baseline.sql
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f /tmp/canopyos-baseline.sql
       - run: npx prisma migrate deploy
       - run: npm run build
       - run: npm run test:ci
