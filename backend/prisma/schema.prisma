@@ -71,6 +71,7 @@ model Plant {
   growProject  GrowProject?  @relation(fields: [growProjectId], references: [id], onDelete: SetNull)
   growLogs     GrowLog[]
   plantLogs    PlantLog[]
+  photos       PlantPhoto[]
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
 
@@ -104,6 +105,17 @@ model GrowLog {
   plantId       String?
   plant         Plant?       @relation(fields: [plantId], references: [id], onDelete: SetNull)
   createdAt     DateTime    @default(now())
+}
+
+model PlantPhoto {
+  id        String   @id @default(cuid())
+  plantId   String
+  plant     Plant    @relation(fields: [plantId], references: [id], onDelete: Cascade)
+  fileName  String
+  mimeType  String
+  createdAt DateTime @default(now())
+
+  @@index([plantId])
 }
 
 model PlantLog {
