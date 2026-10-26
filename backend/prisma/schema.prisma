@@ -15,6 +15,7 @@ model User {
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
   growProjects GrowProject[]
+  plants       Plant[]
 }
 
 model Strain {
@@ -30,6 +31,7 @@ model Strain {
   cbdContent         Float?
   createdAt          DateTime      @default(now())
   growProjects       GrowProject[]
+  plants             Plant[]
 }
 
 model GrowProject {
@@ -46,9 +48,34 @@ model GrowProject {
   strain       Strain         @relation(fields: [strainId], references: [id])
   tasks        Task[]
   growLogs     GrowLog[]
+  plants       Plant[]
   nutrientPlan NutrientPlan[]
   createdAt    DateTime       @default(now())
   updatedAt    DateTime       @updatedAt
+}
+
+model Plant {
+  id           String        @id @default(cuid())
+  name         String
+  customStrain String?
+  growType     GrowType
+  growMethod   GrowMethod
+  currentPhase GrowPhase     @default(GERMINATION)
+  status       ProjectStatus @default(ACTIVE)
+  startDate    DateTime      @default(now())
+  userId       String
+  user         User          @relation(fields: [userId], references: [id])
+  strainId     String?
+  strain       Strain?       @relation(fields: [strainId], references: [id])
+  growProjectId String?
+  growProject  GrowProject?  @relation(fields: [growProjectId], references: [id], onDelete: SetNull)
+  growLogs     GrowLog[]
+  plantLogs    PlantLog[]
+  photos       PlantPhoto[]
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  @@index([userId, createdAt])
 }
 
 model Task {
@@ -75,7 +102,35 @@ model GrowLog {
   humidity      Float?
   growProjectId String
   growProject   GrowProject @relation(fields: [growProjectId], references: [id])
+  plantId       String?
+  plant         Plant?       @relation(fields: [plantId], references: [id], onDelete: SetNull)
   createdAt     DateTime    @default(now())
+}
+
+model PlantPhoto {
+  id        String   @id @default(cuid())
+  plantId   String
+  plant     Plant    @relation(fields: [plantId], references: [id], onDelete: Cascade)
+  fileName  String
+  mimeType  String
+  createdAt DateTime @default(now())
+
+  @@index([plantId])
+}
+
+model PlantLog {
+  id          String   @id @default(cuid())
+  plantId     String
+  plant       Plant    @relation(fields: [plantId], references: [id], onDelete: Cascade)
+  notes       String?
+  photoUrl    String?
+  ph          Float?
+  ec          Float?
+  temperature Float?
+  humidity    Float?
+  createdAt   DateTime @default(now())
+
+  @@index([plantId, createdAt])
 }
 
 model NutrientPlan {
@@ -112,6 +167,7 @@ enum GrowType {
 
 enum GrowMethod {
   SOIL
+  COCO
   HYDROPONIC
   AEROPONIC
 }

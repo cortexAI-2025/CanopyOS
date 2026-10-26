@@ -1,0 +1,57 @@
+name: CanopyOS validation
+on:
+  pull_request:
+  push:
+    branches: [feat/mobile-grow-journal-v1]
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: test-only-password
+          POSTGRES_DB: canopyos_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      DATABASE_URL: postgresql://postgres:test-only-password@localhost:5432/canopyos_test
+      JWT_SECRET: github-actions-test-only-not-production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm install --no-audit --no-fund
+      - run: npx prisma generate
+      - name: Bootstrap legacy schema in disposable test database
+        run: |
+          npx prisma migrate diff --from-empty --to-schema-datamodel prisma/baseline.prisma --script > /tmp/canopyos-baseline.sql
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f /tmp/canopyos-baseline.sql
+      - run: npx prisma migrate deploy
+      - run: npm run build
+      - run: npm run test:ci
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    env:
+      NEXT_PUBLIC_API_URL: http://localhost:3001
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm install --no-audit --no-fund
+      - run: npm run build
