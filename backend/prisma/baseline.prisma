@@ -1,0 +1,138 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String        @id @default(cuid())
+  email        String        @unique
+  password     String
+  name         String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  growProjects GrowProject[]
+}
+
+model Strain {
+  id                 String        @id @default(cuid())
+  name               String        @unique
+  genetics           GeneticType
+  floweringWeeks     Int
+  yieldEstimate      String
+  difficulty         Difficulty
+  climateSuitability String
+  description        String?
+  thcContent         Float?
+  cbdContent         Float?
+  createdAt          DateTime      @default(now())
+  growProjects       GrowProject[]
+}
+
+model GrowProject {
+  id           String         @id @default(cuid())
+  name         String
+  growType     GrowType
+  growMethod   GrowMethod
+  startDate    DateTime
+  status       ProjectStatus  @default(ACTIVE)
+  currentPhase GrowPhase      @default(GERMINATION)
+  userId       String
+  strainId     String
+  user         User           @relation(fields: [userId], references: [id])
+  strain       Strain         @relation(fields: [strainId], references: [id])
+  tasks        Task[]
+  growLogs     GrowLog[]
+  nutrientPlan NutrientPlan[]
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+}
+
+model Task {
+  id            String      @id @default(cuid())
+  title         String
+  description   String?
+  dueDate       DateTime?
+  status        TaskStatus  @default(PENDING)
+  phase         GrowPhase
+  weekNumber    Int
+  growProjectId String
+  growProject   GrowProject @relation(fields: [growProjectId], references: [id])
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+}
+
+model GrowLog {
+  id            String      @id @default(cuid())
+  notes         String?
+  photoUrl      String?
+  ph            Float?
+  ec            Float?
+  temperature   Float?
+  humidity      Float?
+  growProjectId String
+  growProject   GrowProject @relation(fields: [growProjectId], references: [id])
+  createdAt     DateTime    @default(now())
+}
+
+model NutrientPlan {
+  id              String      @id @default(cuid())
+  phase           GrowPhase
+  weekNumber      Int
+  targetPh        Float
+  targetEc        Float
+  nitrogenRatio   Float
+  phosphorusRatio Float
+  potassiumRatio  Float
+  notes           String?
+  growProjectId   String
+  growProject     GrowProject @relation(fields: [growProjectId], references: [id])
+}
+
+enum GeneticType {
+  INDICA
+  SATIVA
+  HYBRID
+}
+
+enum Difficulty {
+  EASY
+  MEDIUM
+  HARD
+}
+
+enum GrowType {
+  INDOOR
+  OUTDOOR
+  GREENHOUSE
+}
+
+enum GrowMethod {
+  SOIL
+  HYDROPONIC
+  AEROPONIC
+}
+
+enum ProjectStatus {
+  ACTIVE
+  COMPLETED
+  PAUSED
+  CANCELLED
+}
+
+enum GrowPhase {
+  GERMINATION
+  VEGETATIVE
+  FLOWERING
+  FLUSH
+}
+
+enum TaskStatus {
+  PENDING
+  IN_PROGRESS
+  DONE
+  SKIPPED
+}
