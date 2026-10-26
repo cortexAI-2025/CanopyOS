@@ -35,6 +35,22 @@ export default function PlantDetailPage() {
       .finally(() => setLoading(false))
   }, [ready, isAuthenticated, router, id])
 
+  useEffect(() => {
+    if (!ready || !isAuthenticated) return
+    let active = true
+    const urls: string[] = []
+    plantsApi.photos(id).then(async response => {
+      const loaded = await Promise.all(response.data.map(async photo => {
+        const blob = await plantsApi.photoBlob(id, photo.id)
+        const src = URL.createObjectURL(blob.data)
+        urls.push(src)
+        return { id: photo.id, src }
+      }))
+      if (active) setPhotos(loaded)
+    }).catch(() => setError('Impossible de charger les photos.'))
+    return () => { active = false; urls.forEach(url => URL.revokeObjectURL(url)) }
+  }, [ready, isAuthenticated, id])
+
   async function uploadPhoto(file: File) {
     if (file.size > 5 * 1024 * 1024) { setError('Photo limitée à 5 Mo.'); return }
     setUploading(true); setError('')
