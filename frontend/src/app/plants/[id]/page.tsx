@@ -20,6 +20,8 @@ export default function PlantDetailPage() {
   const [temperature, setTemperature] = useState('')
   const [humidity, setHumidity] = useState('')
   const [photoUrl, setPhotoUrl] = useState('')
+  const [photos, setPhotos] = useState<{ id: string; src: string }[]>([])
+  const [uploading, setUploading] = useState(false)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -32,6 +34,17 @@ export default function PlantDetailPage() {
       .catch(() => setError('Impossible de charger ce journal.'))
       .finally(() => setLoading(false))
   }, [ready, isAuthenticated, router, id])
+
+  async function uploadPhoto(file: File) {
+    if (file.size > 5 * 1024 * 1024) { setError('Photo limitée à 5 Mo.'); return }
+    setUploading(true); setError('')
+    try {
+      const uploaded = await plantsApi.uploadPhoto(id, file)
+      const blob = await plantsApi.photoBlob(id, uploaded.data.id)
+      setPhotos(previous => [{ id: uploaded.data.id, src: URL.createObjectURL(blob.data) }, ...previous])
+    } catch { setError('Import de la photo impossible.') }
+    finally { setUploading(false) }
+  }
 
   async function addLog(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -75,6 +88,21 @@ export default function PlantDetailPage() {
           </label>
           <button disabled={busy} className="mt-3 rounded-xl bg-emerald-500 px-5 py-3 font-semibold text-gray-950 disabled:opacity-50">{busy ? 'Enregistrement…' : 'Ajouter au journal'}</button>
         </form>
+      </section>
+      <section className="mb-8">
+        <h2 className="text-xl font-semibold mb-3">Photos de la plante</h2>
+        <label className="block rounded-xl border border-gray-700 p-4">
+          Ajouter une photo (JPEG, PNG ou WebP, 5 Mo maximum)
+          <input type="file" accept="image/jpeg,image/png,image/webp" disabled={uploading}
+            onChange={e => { const file = e.target.files?.[0]; if (file) void uploadPhoto(file); e.target.value = '' }}
+            className="mt-3 block w-full text-sm" />
+        </label>
+        {uploading && <p role="status" className="mt-2">Envoi de la photo…</p>}
+        <div className="mt-3 grid grid-cols-2 gap-3">{photos.map(photo =>
+          <div key={photo.id} className="overflow-hidden rounded-xl border border-gray-700">
+            <img src={photo.src} alt="Photo de culture importée" className="h-40 w-full object-cover" />
+          </div>)}
+        </div>
       </section>
       <section><h2 className="text-xl font-semibold mb-4">Journal de culture</h2>
         {logs.length === 0 && <p className="text-gray-400">Aucune observation pour le moment.</p>}
