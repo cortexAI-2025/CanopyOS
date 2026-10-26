@@ -1,4 +1,5 @@
 import { NotFoundException } from '@nestjs/common';
+import { GrowType, GrowMethod } from '@prisma/client';
 import { PlantsService } from './plants.service';
 
 describe('PlantsService tenant isolation', () => {
@@ -56,8 +57,8 @@ describe('PlantsService tenant isolation', () => {
 
   it('creates a plant with a manually entered variety', async () => {
     const result = await service.create(owner, {
-      name: 'Plant 2', customStrain: 'Test variety', growType: 'INDOOR',
-      growMethod: 'COCO',
+      name: 'Plant 2', customStrain: 'Test variety', growType: GrowType.INDOOR,
+      growMethod: GrowMethod.COCO,
     });
     expect(result.userId).toBe(owner);
     expect(result.growMethod).toBe('COCO');
