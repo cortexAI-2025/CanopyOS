@@ -44,6 +44,15 @@ export class PlantPhotosController {
     return { id: photo.id, url: '/plants/' + id + '/photos/' + photo.id };
   }
 
+  @Get(':id/photos')
+  async list(@Param('id') id: string, @Request() req: { user: { id: string } }) {
+    await this.plants.get(id, req.user.id);
+    return this.prisma.plantPhoto.findMany({
+      where: { plantId: id }, select: { id: true, createdAt: true },
+      orderBy: { createdAt: 'desc' }, take: 100,
+    });
+  }
+
   @Get(':id/photos/:photoId')
   async read(@Param('id') id: string, @Param('photoId') photoId: string,
     @Request() req: { user: { id: string } }, @Res() res: Response) {
