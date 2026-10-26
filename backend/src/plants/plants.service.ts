@@ -10,7 +10,7 @@ export class PlantsService {
   list(userId: string) {
     return this.prisma.plant.findMany({
       where: { userId },
-      include: { strain: true, _count: { select: { growLogs: true } } },
+      include: { strain: true, _count: { select: { plantLogs: true } } },
       orderBy: { createdAt: 'desc' },
     });
   }
@@ -42,18 +42,12 @@ export class PlantsService {
 
   async addLog(id: string, userId: string, dto: CreatePlantLogDto) {
     const plant = await this.get(id, userId);
-    // Legacy GrowLog requires growProjectId; keep existing journal untouched.
-    if (!plant.growProjectId) {
-      throw new BadRequestException('Standalone plant log storage pending migration');
-    }
-    return this.prisma.growLog.create({
-      data: { ...dto, plantId: id, growProjectId: plant.growProjectId },
-    });
+    return this.prisma.plantLog.create({ data: { ...dto, plantId: plant.id } });
   }
 
   async logs(id: string, userId: string) {
     await this.get(id, userId);
-    return this.prisma.growLog.findMany({
+    return this.prisma.plantLog.findMany({
       where: { plantId: id }, orderBy: { createdAt: 'desc' }, take: 100,
     });
   }
