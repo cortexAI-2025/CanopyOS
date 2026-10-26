@@ -25,7 +25,20 @@ export interface PlantLog {
   humidity?: number | null
   createdAt: string
 }
+export interface PlantPhoto { id: string; createdAt: string }
 export const plantsApi = {
+  photos: (id: string) => api.get<PlantPhoto[]>('/plants/' + encodeURIComponent(id) + '/photos'),
+  uploadPhoto: (id: string, file: File) => {
+    const data = new FormData()
+    data.append('photo', file)
+    return api.post<{ id: string; url: string }>('/plants/' + encodeURIComponent(id) + '/photos', data, {
+      headers: { 'Content-Type': undefined },
+    })
+  },
+  photoBlob: (id: string, photoId: string) => api.get<Blob>(
+    '/plants/' + encodeURIComponent(id) + '/photos/' + encodeURIComponent(photoId),
+    { responseType: 'blob' },
+  ),
   list: () => api.get<Plant[]>('/plants'),
   get: (id: string) => api.get<Plant>('/plants/' + encodeURIComponent(id)),
   create: (data: PlantInput) => api.post<Plant>('/plants', data),
