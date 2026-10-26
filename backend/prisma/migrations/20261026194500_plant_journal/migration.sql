@@ -22,3 +22,18 @@ ALTER TABLE "Plant" ADD CONSTRAINT "Plant_strainId_fkey" FOREIGN KEY ("strainId"
 ALTER TABLE "Plant" ADD CONSTRAINT "Plant_growProjectId_fkey" FOREIGN KEY ("growProjectId") REFERENCES "GrowProject"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 ALTER TABLE "GrowLog" ADD COLUMN "plantId" TEXT;
 ALTER TABLE "GrowLog" ADD CONSTRAINT "GrowLog_plantId_fkey" FOREIGN KEY ("plantId") REFERENCES "Plant"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+CREATE TABLE "PlantLog" (
+  "id" TEXT NOT NULL,
+  "plantId" TEXT NOT NULL,
+  "notes" TEXT,
+  "photoUrl" TEXT,
+  "ph" DOUBLE PRECISION,
+  "ec" DOUBLE PRECISION,
+  "temperature" DOUBLE PRECISION,
+  "humidity" DOUBLE PRECISION,
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "PlantLog_pkey" PRIMARY KEY ("id")
+);
+CREATE INDEX "PlantLog_plantId_createdAt_idx" ON "PlantLog"("plantId","createdAt");
+ALTER TABLE "PlantLog" ADD CONSTRAINT "PlantLog_plantId_fkey" FOREIGN KEY ("plantId") REFERENCES "Plant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
