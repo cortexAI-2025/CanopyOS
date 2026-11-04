@@ -139,7 +139,8 @@ test('plant journal on a phone: login, plant, entries, photo, reload, isolation'
     await expect(pageB.getByRole('heading', { name: 'Votre journal commence ici' })).toBeVisible();
     await expect(pageB.getByText('Plante E2E 01')).toHaveCount(0);
     await pageB.goto(`/plants/${plantId}`);
-    await expect(pageB.locator('main [role="alert"]')).toContainText('Impossible de charger ce journal');
+    // two requests fail (plant, photos) and share one error state: either message is a refusal
+    await expect(pageB.locator('main [role="alert"]')).toContainText(/Impossible de charger/);
     await expect(pageB.getByText('E2E observation 1')).toHaveCount(0);
     await expect(pageB.getByAltText('Photo de culture importée')).toHaveCount(0);
     await context.close();

@@ -61,10 +61,14 @@ jobs:
           npx prisma migrate status
 
       - run: npm run build
+      - name: Build output has the entry point used by `npm start` (dist/main.js)
+        run: test -f dist/main.js
       - name: Unit tests
+        if: ${{ !cancelled() }}
         run: npm run test:ci
 
       - name: Backend refuses to start without JWT_SECRET
+        if: ${{ !cancelled() }}
         run: |
           set +e
           out=$(env -u JWT_SECRET timeout 60 node dist/main 2>&1)
@@ -77,6 +81,7 @@ jobs:
           echo "$out" | grep -q "JWT_SECRET"
 
       - name: Integration tests (real PostgreSQL, two test accounts)
+        if: ${{ !cancelled() }}
         run: npm run test:int
 
   # ---------------------------------------------------------------------------
