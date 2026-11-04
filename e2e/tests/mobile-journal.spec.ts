@@ -26,6 +26,7 @@ async function loginThroughUi(page: Page, account: { email: string; password: st
   await page.locator('input[type="password"]').fill(account.password);
   await page.getByRole('button', { name: 'Sign In' }).click();
   await page.waitForFunction(() => !!localStorage.getItem('canopyos_token'), undefined, { timeout: 30_000 });
+  await page.waitForURL(/\/plants$/, { timeout: 30_000 }); // login lands on the plant journal
 }
 
 test('plant journal on a phone: login, plant, entries, photo, reload, isolation', async ({ page, browser }, testInfo) => {

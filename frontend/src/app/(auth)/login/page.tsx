@@ -23,7 +23,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (isAuthenticated) {
-      router.replace('/dashboard')
+      router.replace('/plants')
     }
   }, [isAuthenticated, router])
 
@@ -50,7 +50,7 @@ export default function LoginPage() {
     setIsLoading(true)
     try {
       await login(email.trim(), password)
-      router.replace('/dashboard')
+      router.replace('/plants')
     } catch (err) {
       setLocalError(getErrorMessage(err))
     } finally {

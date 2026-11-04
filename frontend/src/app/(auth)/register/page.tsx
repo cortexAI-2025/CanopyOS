@@ -24,7 +24,7 @@ export default function RegisterPage() {
 
   useEffect(() => {
     if (isAuthenticated) {
-      router.replace('/dashboard')
+      router.replace('/plants')
     }
   }, [isAuthenticated, router])
 
@@ -55,7 +55,7 @@ export default function RegisterPage() {
     setIsLoading(true)
     try {
       await register(email.trim(), password, name.trim())
-      router.replace('/dashboard')
+      router.replace('/plants')
     } catch (err) {
       setLocalError(getErrorMessage(err))
     } finally {
