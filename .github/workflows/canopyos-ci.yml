@@ -4,7 +4,17 @@ on:
   push:
     branches: [feat/mobile-grow-journal-v1]
 
+permissions:
+  contents: read
+
+# Every job uses its own throwaway PostgreSQL service container and test-only credentials.
+# No production database, secret or service is ever touched.
+
 jobs:
+  # ---------------------------------------------------------------------------
+  # Fresh install: empty database -> `prisma migrate deploy` -> V1 schema.
+  # Also: build, unit tests, startup refusal without JWT_SECRET, real two-account API tests.
+  # ---------------------------------------------------------------------------
   backend:
     runs-on: ubuntu-latest
     services:
@@ -33,13 +43,237 @@ jobs:
           node-version: '20'
       - run: npm install --no-audit --no-fund
       - run: npx prisma generate
-      - name: Bootstrap legacy schema in disposable test database
+      - name: Prisma schema is valid
+        run: npx prisma validate
+
+      - name: Fresh install - prisma migrate deploy on an empty database
         run: |
-          npx prisma migrate diff --from-empty --to-schema-datamodel prisma/baseline.prisma --script > /tmp/canopyos-baseline.sql
-          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f /tmp/canopyos-baseline.sql
-      - run: npx prisma migrate deploy
+          set -euo pipefail
+          npx prisma migrate deploy 2>&1 | tee "$RUNNER_TEMP/deploy-fresh.log"
+          grep -q "0_init" "$RUNNER_TEMP/deploy-fresh.log"
+          grep -q "20261026194500_plant_journal" "$RUNNER_TEMP/deploy-fresh.log"
+      - name: Fresh install - resulting schema equals schema.prisma (no drift)
+        run: npx prisma migrate diff --from-url "$DATABASE_URL" --to-schema-datamodel prisma/schema.prisma --exit-code
+      - name: Fresh install - a second deploy leaves nothing pending
+        run: |
+          set -euo pipefail
+          npx prisma migrate deploy
+          npx prisma migrate status
+
       - run: npm run build
-      - run: npm run test:ci
+      - name: Unit tests
+        run: npm run test:ci
+
+      - name: Backend refuses to start without JWT_SECRET
+        run: |
+          set +e
+          out=$(env -u JWT_SECRET timeout 60 node dist/main 2>&1)
+          code=$?
+          set -e
+          echo "$out" | tail -n 20
+          echo "exit code: $code"
+          test "$code" -ne 0
+          test "$code" -ne 124
+          echo "$out" | grep -q "JWT_SECRET"
+
+      - name: Integration tests (real PostgreSQL, two test accounts)
+        run: npm run test:int
+
+  # ---------------------------------------------------------------------------
+  # Upgrade: legacy database (pre-plant-journal schema) with fictitious data
+  # -> baseline recorded with `migrate resolve --applied 0_init` -> deploy -> data kept.
+  # ---------------------------------------------------------------------------
+  migration-upgrade:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: test-only-password
+          POSTGRES_DB: canopyos_legacy
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      DATABASE_URL: postgresql://postgres:test-only-password@localhost:5432/canopyos_legacy
+      SCRATCH_URL: postgresql://postgres:test-only-password@localhost:5432/baseline_sql_check
+      ADMIN_URL: postgresql://postgres:test-only-password@localhost:5432/postgres
+      JWT_SECRET: github-actions-test-only-not-production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm install --no-audit --no-fund
+      - run: npx prisma generate
+
+      - name: 0_init SQL is equivalent to the legacy schema (baseline.prisma)
+        run: |
+          set -euo pipefail
+          psql "$ADMIN_URL" -v ON_ERROR_STOP=1 -c 'CREATE DATABASE baseline_sql_check'
+          psql "$SCRATCH_URL" -v ON_ERROR_STOP=1 -1 -f prisma/migrations/0_init/migration.sql
+          npx prisma migrate diff --from-url "$SCRATCH_URL" --to-schema-datamodel prisma/baseline.prisma --exit-code
+
+      - name: Create the legacy database (schema before the plant journal) with fictitious data
+        run: |
+          set -euo pipefail
+          # --skip-generate: keep the generated client of the current schema
+          npx prisma db push --schema prisma/baseline.prisma --skip-generate
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+          INSERT INTO "User"(id,email,password,name,"updatedAt") VALUES
+            ('u1','legacy-a@example.test','not-a-real-hash','Legacy A',now()),
+            ('u2','legacy-b@example.test','not-a-real-hash','Legacy B',now());
+          INSERT INTO "Strain"(id,name,genetics,"floweringWeeks","yieldEstimate",difficulty,"climateSuitability")
+            VALUES ('s1','Fictional Strain','HYBRID',9,'medium','EASY','temperate');
+          INSERT INTO "GrowProject"(id,name,"growType","growMethod","startDate","userId","strainId","updatedAt") VALUES
+            ('p1','Legacy project 1','INDOOR','SOIL',now(),'u1','s1',now()),
+            ('p2','Legacy project 2','OUTDOOR','HYDROPONIC',now(),'u2','s1',now());
+          INSERT INTO "GrowLog"(id,notes,ph,"growProjectId") VALUES
+            ('l1','legacy note 1',6.1,'p1'),('l2','legacy note 2',5.9,'p1'),('l3','legacy note 3',6.3,'p2');
+          INSERT INTO "Task"(id,title,phase,"weekNumber","growProjectId","updatedAt")
+            VALUES ('t1','legacy task','VEGETATIVE',2,'p1',now());
+          SQL
+          psql "$DATABASE_URL" -Atc 'select (select count(*) from "User"),(select count(*) from "Strain"),(select count(*) from "GrowProject"),(select count(*) from "GrowLog"),(select count(*) from "Task")' | tee "$RUNNER_TEMP/counts-before.txt"
+          test "$(cat "$RUNNER_TEMP/counts-before.txt")" = "2|1|2|3|1"
+
+      - name: Without a baseline the deploy fails with P3005 (documents the original blocker)
+        run: |
+          set +e
+          npx prisma migrate deploy > "$RUNNER_TEMP/p3005.log" 2>&1
+          code=$?
+          set -e
+          cat "$RUNNER_TEMP/p3005.log"
+          test "$code" -ne 0
+          grep -q "P3005" "$RUNNER_TEMP/p3005.log"
+
+      - name: Verify the legacy schema, then record 0_init as already applied
+        run: |
+          set -euo pipefail
+          # migrate resolve --applied is only allowed once the database is proven to match the baseline
+          npx prisma migrate diff --from-url "$DATABASE_URL" --to-schema-datamodel prisma/baseline.prisma --exit-code
+          npx prisma migrate resolve --applied 0_init
+
+      - name: Upgrade - prisma migrate deploy applies only the plant journal migration
+        run: |
+          set -euo pipefail
+          npx prisma migrate deploy 2>&1 | tee "$RUNNER_TEMP/deploy-upgrade.log"
+          grep -q "20261026194500_plant_journal" "$RUNNER_TEMP/deploy-upgrade.log"
+          if grep -q "0_init" "$RUNNER_TEMP/deploy-upgrade.log"; then echo "0_init must not be re-applied"; exit 1; fi
+
+      - name: Upgrade - existing data is preserved and the new tables are usable
+        run: |
+          set -euo pipefail
+          psql "$DATABASE_URL" -Atc 'select (select count(*) from "User"),(select count(*) from "Strain"),(select count(*) from "GrowProject"),(select count(*) from "GrowLog"),(select count(*) from "Task")' | tee "$RUNNER_TEMP/counts-after.txt"
+          test "$(cat "$RUNNER_TEMP/counts-after.txt")" = "2|1|2|3|1"
+          test "$(psql "$DATABASE_URL" -Atc "select string_agg(id||':'||notes, ',' order by id) from \"GrowLog\"")" = "l1:legacy note 1,l2:legacy note 2,l3:legacy note 3"
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+          INSERT INTO "Plant"(id,name,"customStrain","growType","growMethod","userId","updatedAt")
+            VALUES ('pl1','Upgraded plant','Fictional variety','INDOOR','COCO','u1',now());
+          INSERT INTO "PlantLog"(id,"plantId",notes,ph) VALUES ('pll1','pl1','first entry after upgrade',6.0);
+          SQL
+          test "$(psql "$DATABASE_URL" -Atc "select count(*) from \"PlantLog\" where \"plantId\" = 'pl1'")" = "1"
+
+      - name: Upgrade - resulting schema equals schema.prisma (no drift)
+        run: npx prisma migrate diff --from-url "$DATABASE_URL" --to-schema-datamodel prisma/schema.prisma --exit-code
+      - name: Upgrade - a second deploy leaves nothing pending
+        run: |
+          set -euo pipefail
+          npx prisma migrate deploy
+          npx prisma migrate status
+
+  # ---------------------------------------------------------------------------
+  # Mobile journey in a phone-sized Chromium against the real backend and frontend.
+  # ---------------------------------------------------------------------------
+  e2e-mobile:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: test-only-password
+          POSTGRES_DB: canopyos_e2e
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://postgres:test-only-password@localhost:5432/canopyos_e2e
+      JWT_SECRET: github-actions-test-only-not-production
+      NEXT_PUBLIC_API_URL: http://localhost:3001
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Backend - install, migrate (fresh), build
+        working-directory: backend
+        run: |
+          set -euo pipefail
+          npm install --no-audit --no-fund
+          npx prisma generate
+          npx prisma migrate deploy
+          npm run build
+      - name: Backend - start
+        working-directory: backend
+        env:
+          CANOPYOS_UPLOAD_DIR: ${{ runner.temp }}/canopyos-e2e-uploads
+        run: |
+          nohup node dist/main > "$RUNNER_TEMP/backend.log" 2>&1 &
+          for i in $(seq 1 60); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:3001/plants || true)
+            if [ "$code" = "401" ]; then echo "backend up (GET /plants -> 401 without token)"; exit 0; fi
+            sleep 1
+          done
+          echo "backend did not become ready"; cat "$RUNNER_TEMP/backend.log"; exit 1
+
+      - name: Frontend - install, build, start
+        working-directory: frontend
+        run: |
+          set -euo pipefail
+          npm install --no-audit --no-fund
+          npm run build
+          nohup npm start > "$RUNNER_TEMP/frontend.log" 2>&1 &
+          for i in $(seq 1 60); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:3000/login || true)
+            if [ "$code" = "200" ]; then echo "frontend up"; exit 0; fi
+            sleep 1
+          done
+          echo "frontend did not become ready"; cat "$RUNNER_TEMP/frontend.log"; exit 1
+
+      - name: Playwright - install
+        working-directory: e2e
+        run: |
+          npm install --no-audit --no-fund
+          npx playwright install --with-deps chromium
+      - name: Playwright - mobile journey
+        working-directory: e2e
+        run: npx playwright test
+
+      - name: Upload Playwright report and screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-mobile-report
+          path: |
+            e2e/playwright-report
+            e2e/test-results
+          if-no-files-found: ignore
+      - name: Show service logs on failure
+        if: failure()
+        run: |
+          echo "--- backend"; tail -n 80 "$RUNNER_TEMP/backend.log" || true
+          echo "--- frontend"; tail -n 40 "$RUNNER_TEMP/frontend.log" || true
 
   frontend:
     runs-on: ubuntu-latest
