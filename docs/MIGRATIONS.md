@@ -44,7 +44,25 @@ npx prisma migrate deploy
 `migrate resolve --applied` ne doit être utilisé **que** si l'étape 1 est concluante : il déclare
 la migration comme déjà appliquée sans le vérifier.
 
-Restauration en cas de problème : `pg_restore --clean --if-exists -d "$DATABASE_URL" canopyos-before-upgrade.dump`.
+### Retour arrière
+
+Restaurer la sauvegarde **dans une base neuve**, puis faire pointer l'application dessus :
+
+```bash
+createdb canopyos_restored                       # ou CREATE DATABASE depuis l'outil d'administration
+pg_restore --no-owner --no-acl --exit-on-error -d canopyos_restored canopyos-before-upgrade.dump
+```
+
+Ne pas utiliser `pg_restore --clean` par-dessus la base déjà mise à niveau : `--clean` ne supprime que
+les objets présents dans la sauvegarde ; les tables `Plant*` et la table `_prisma_migrations` créées par
+la mise à niveau resteraient en place et l'historique serait incohérent.
+
+Ce parcours (sauvegarde → mise à niveau → restauration dans une base neuve → nouvelle mise à niveau) est
+rejoué par `scripts/test-backup-restore.sh` dans le job CI `backup-restore`, sur des bases jetables.
+La version de `pg_dump` doit être égale ou supérieure à celle du serveur.
+
+Pour une base de production réelle, suivre `docs/PRODUCTION-COPY-RUNBOOK.md` (travail sur une copie
+uniquement, avec contrôle préalable en lecture seule).
 
 ## 3. Règles
 

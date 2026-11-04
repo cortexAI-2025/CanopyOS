@@ -112,6 +112,7 @@ jobs:
       - name: Production configuration - refuses to start when unsafe
         if: ${{ !cancelled() }}
         run: |
+          set +e   # the runner shell is `bash -e`; non-zero exits are what we are checking
           set -uo pipefail
           GOOD_SECRET="$(openssl rand -hex 32)"
           expect_refusal() { # name, expected message, env assignments...
@@ -331,13 +332,16 @@ jobs:
           for d in backend frontend e2e; do
             (cd "$d" && npm install --package-lock-only --ignore-scripts --no-audit --no-fund)
           done
-      - uses: actions/upload-artifact@v4
-        with:
-          name: lockfiles
-          path: |
-            backend/package-lock.json
-            frontend/package-lock.json
-            e2e/package-lock.json
+      - name: Print the lockfiles (gzip + base64) with their SHA-256, to be reassembled and verified
+        run: |
+          set -euo pipefail
+          for d in backend frontend e2e; do
+            f="$d/package-lock.json"
+            echo "LOCKFILE-BEGIN $f $(sha256sum "$f" | cut -d' ' -f1) $(wc -c < "$f")"
+            gzip -9 -n -c "$f" | base64 -w 0 | fold -w 200
+            echo
+            echo "LOCKFILE-END $f"
+          done
 
   # ---------------------------------------------------------------------------
   # Mobile journey in a phone-sized Chromium against the real backend and frontend.
