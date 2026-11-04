@@ -51,11 +51,11 @@ npm install
 cp .env.example .env
 ```
 
-Edit `.env` and set your `DATABASE_URL` and `JWT_SECRET`, then run migrations and seed the database:
+Edit `.env` and set your `DATABASE_URL` and `JWT_SECRET` (the backend refuses to start without a `JWT_SECRET`), then apply the migrations:
 
 ```bash
-npx prisma migrate dev
-npx prisma db seed
+npx prisma migrate deploy      # fresh database; for an existing database see docs/MIGRATIONS.md
+npm run prisma:seed            # optional: strain catalogue
 npm run start:dev
 ```
 
