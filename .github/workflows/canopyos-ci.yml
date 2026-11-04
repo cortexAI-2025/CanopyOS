@@ -41,8 +41,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - run: npm install --no-audit --no-fund
+      - run: npm ci --no-audit --no-fund
       - run: npx prisma generate
+      - name: Dependency audit - production dependencies (informational, results are documented)
+        continue-on-error: true
+        run: npm audit --omit=dev --audit-level=high
       - name: Prisma schema is valid
         run: npx prisma validate
 
@@ -168,7 +171,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - run: npm install --no-audit --no-fund
+      - run: npm ci --no-audit --no-fund
       - run: npx prisma generate
 
       - name: 0_init SQL is equivalent to the legacy schema (baseline.prisma)
@@ -307,41 +310,13 @@ jobs:
       - name: Backend dependencies and Prisma client
         working-directory: backend
         run: |
-          npm install --no-audit --no-fund
+          npm ci --no-audit --no-fund
           npx prisma generate
       - name: pg_dump / pg_restore on throwaway databases
         env:
           PG_ADMIN_URL: postgresql://postgres:test-only-password@localhost:5432/postgres
           CONFIRM_THROWAWAY_SERVER: 'yes'
         run: bash scripts/test-backup-restore.sh
-
-  # ---------------------------------------------------------------------------
-  # TEMPORARY: generates reproducible lockfiles (downloaded and committed, then this job is removed).
-  # ---------------------------------------------------------------------------
-  lockfiles:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-      - name: Resolve dependencies without installing or running scripts
-        run: |
-          set -euo pipefail
-          node --version; npm --version
-          for d in backend frontend e2e; do
-            (cd "$d" && npm install --package-lock-only --ignore-scripts --no-audit --no-fund)
-          done
-      - name: Print the lockfiles (gzip + base64) with their SHA-256, to be reassembled and verified
-        run: |
-          set -euo pipefail
-          for d in backend frontend e2e; do
-            f="$d/package-lock.json"
-            echo "LOCKFILE-BEGIN $f $(sha256sum "$f" | cut -d' ' -f1) $(wc -c < "$f")"
-            gzip -9 -n -c "$f" | base64 -w 0 | fold -w 200
-            echo
-            echo "LOCKFILE-END $f"
-          done
 
   # ---------------------------------------------------------------------------
   # Mobile journey in a phone-sized Chromium against the real backend and frontend.
@@ -375,7 +350,7 @@ jobs:
         working-directory: backend
         run: |
           set -euo pipefail
-          npm install --no-audit --no-fund
+          npm ci --no-audit --no-fund
           npx prisma generate
           npx prisma migrate deploy
           npm run build
@@ -396,7 +371,7 @@ jobs:
         working-directory: frontend
         run: |
           set -euo pipefail
-          npm install --no-audit --no-fund
+          npm ci --no-audit --no-fund
           npm run build
           nohup npm start > "$RUNNER_TEMP/frontend.log" 2>&1 &
           for i in $(seq 1 60); do
@@ -409,7 +384,7 @@ jobs:
       - name: Playwright - install
         working-directory: e2e
         run: |
-          npm install --no-audit --no-fund
+          npm ci --no-audit --no-fund
           npx playwright install --with-deps chromium
       - name: Playwright - mobile journey
         working-directory: e2e
@@ -442,5 +417,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - run: npm install --no-audit --no-fund
+      - run: npm ci --no-audit --no-fund
+      - name: Dependency audit - production dependencies (informational, results are documented)
+        continue-on-error: true
+        run: npm audit --omit=dev --audit-level=high
       - run: npm run build
