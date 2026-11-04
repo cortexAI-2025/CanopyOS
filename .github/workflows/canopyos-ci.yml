@@ -80,6 +80,57 @@ jobs:
           test "$code" -ne 124
           echo "$out" | grep -q "JWT_SECRET"
 
+      - name: Production configuration - starts with a complete, strong configuration
+        if: ${{ !cancelled() }}
+        env:
+          NODE_ENV: production
+          CORS_ORIGINS: https://app.example.test
+          CANOPYOS_UPLOAD_DIR: ${{ runner.temp }}/prod-smoke-uploads
+          PORT: '3101'
+        run: |
+          set -euo pipefail
+          export JWT_SECRET="$(openssl rand -hex 32)"   # generated for this run only, never printed
+          nohup node dist/main > "$RUNNER_TEMP/prod-smoke.log" 2>&1 &
+          pid=$!
+          ok=0
+          for i in $(seq 1 60); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:3101/plants || true)
+            if [ "$code" = "401" ]; then ok=1; break; fi
+            sleep 1
+          done
+          if [ "$ok" != 1 ]; then cat "$RUNNER_TEMP/prod-smoke.log"; kill "$pid" 2>/dev/null || true; exit 1; fi
+          echo "production-mode backend up (GET /plants -> 401 without token)"
+          allowed=$(curl -s -o /dev/null -D - -X OPTIONS http://localhost:3101/plants -H 'Origin: https://app.example.test' -H 'Access-Control-Request-Method: GET' | tr -d '\r' | grep -i '^access-control-allow-origin:' || true)
+          echo "listed origin   -> ${allowed:-<no header>}"
+          test "$(echo "$allowed" | tr 'A-Z' 'a-z')" = "access-control-allow-origin: https://app.example.test"
+          denied=$(curl -s -o /dev/null -D - -X OPTIONS http://localhost:3101/plants -H 'Origin: https://evil.example.test' -H 'Access-Control-Request-Method: GET' | tr -d '\r' | grep -i '^access-control-allow-origin:' || true)
+          echo "unlisted origin -> ${denied:-<no header>}"
+          test -z "$denied"
+          kill "$pid"
+          test -d "$CANOPYOS_UPLOAD_DIR"
+
+      - name: Production configuration - refuses to start when unsafe
+        if: ${{ !cancelled() }}
+        run: |
+          set -uo pipefail
+          GOOD_SECRET="$(openssl rand -hex 32)"
+          expect_refusal() { # name, expected message, env assignments...
+            local name="$1" pattern="$2"; shift 2
+            local out code
+            out=$(env -i PATH="$PATH" HOME="$HOME" DATABASE_URL="$DATABASE_URL" PORT=3102 "$@" timeout 60 node dist/main 2>&1)
+            code=$?
+            echo "[$name] exit code $code"
+            if [ "$code" -eq 0 ] || [ "$code" -eq 124 ]; then echo "$out" | tail -n 15; echo "FAILED: [$name] should refuse to start"; exit 1; fi
+            if ! echo "$out" | grep -q "$pattern"; then echo "$out" | tail -n 15; echo "FAILED: [$name] wrong reason (expected: $pattern)"; exit 1; fi
+          }
+          expect_refusal "no CORS_ORIGINS"       "CORS_ORIGINS"        NODE_ENV=production JWT_SECRET="$GOOD_SECRET" CANOPYOS_UPLOAD_DIR="$RUNNER_TEMP/u1"
+          expect_refusal "wildcard CORS"         "CORS_ORIGINS"        NODE_ENV=production JWT_SECRET="$GOOD_SECRET" CANOPYOS_UPLOAD_DIR="$RUNNER_TEMP/u1" CORS_ORIGINS='*'
+          expect_refusal "no upload dir"         "CANOPYOS_UPLOAD_DIR" NODE_ENV=production JWT_SECRET="$GOOD_SECRET" CORS_ORIGINS=https://app.example.test
+          expect_refusal "relative upload dir"   "absolute"            NODE_ENV=production JWT_SECRET="$GOOD_SECRET" CORS_ORIGINS=https://app.example.test CANOPYOS_UPLOAD_DIR=relative/dir
+          expect_refusal "weak secret (example)" "too weak"            NODE_ENV=production JWT_SECRET="your-secret-key-change-in-production" CORS_ORIGINS=https://app.example.test CANOPYOS_UPLOAD_DIR="$RUNNER_TEMP/u1"
+          expect_refusal "short secret"          "too weak"            NODE_ENV=production JWT_SECRET="short" CORS_ORIGINS=https://app.example.test CANOPYOS_UPLOAD_DIR="$RUNNER_TEMP/u1"
+          echo "all unsafe production configurations are refused"
+
       - name: Integration tests (real PostgreSQL, two test accounts)
         if: ${{ !cancelled() }}
         run: npm run test:int
@@ -158,6 +209,42 @@ jobs:
           test "$code" -ne 0
           grep -q "P3005" "$RUNNER_TEMP/p3005.log"
 
+      - name: Production-copy preflight (read-only) - refuses without confirmation, then reports the legacy copy as ready
+        run: |
+          set -euo pipefail
+          cd ..
+          set +e
+          COPY_DATABASE_URL="$DATABASE_URL" bash scripts/preflight-copy.sh > "$RUNNER_TEMP/pf-noconfirm.log" 2>&1
+          code=$?
+          set -e
+          cat "$RUNNER_TEMP/pf-noconfirm.log"; test "$code" -eq 64
+          set +e
+          COPY_DATABASE_URL="$DATABASE_URL" CONFIRM_THIS_IS_A_COPY=yes FORBIDDEN_HOST_PATTERN='localhost' bash scripts/preflight-copy.sh > "$RUNNER_TEMP/pf-forbidden.log" 2>&1
+          code=$?
+          set -e
+          cat "$RUNNER_TEMP/pf-forbidden.log"; test "$code" -eq 64
+          before=$(psql "$DATABASE_URL" -Atc "select md5(string_agg(t::text,'|' order by t::text)) from (select tablename from pg_tables where schemaname='public') t")
+          COPY_DATABASE_URL="$DATABASE_URL" CONFIRM_THIS_IS_A_COPY=yes bash scripts/preflight-copy.sh | tee "$RUNNER_TEMP/pf-ok.log"
+          grep -q "VERDICT: READY FOR BASELINE" "$RUNNER_TEMP/pf-ok.log"
+          # read-only: nothing changed in the inspected database
+          after=$(psql "$DATABASE_URL" -Atc "select md5(string_agg(t::text,'|' order by t::text)) from (select tablename from pg_tables where schemaname='public') t")
+          test "$before" = "$after"
+          test "$(psql "$DATABASE_URL" -Atc "select count(*) from pg_tables where schemaname='public' and tablename='_prisma_migrations'")" = "0"
+      - name: Production-copy preflight - a copy whose schema differs from the baseline is rejected (exit 2)
+        run: |
+          set -euo pipefail
+          psql "$ADMIN_URL" -v ON_ERROR_STOP=1 -c 'CREATE DATABASE legacy_modified TEMPLATE canopyos_legacy'
+          psql "postgresql://postgres:test-only-password@localhost:5432/legacy_modified" -v ON_ERROR_STOP=1 -c 'ALTER TABLE "User" ADD COLUMN manual_change text'
+          cd ..
+          set +e
+          COPY_DATABASE_URL="postgresql://postgres:test-only-password@localhost:5432/legacy_modified" CONFIRM_THIS_IS_A_COPY=yes bash scripts/preflight-copy.sh > "$RUNNER_TEMP/pf-diff.log" 2>&1
+          code=$?
+          set -e
+          cat "$RUNNER_TEMP/pf-diff.log"
+          test "$code" -eq 2
+          grep -q "manual_change" "$RUNNER_TEMP/pf-diff.log"
+          grep -q "SCHEMA DIFFERS" "$RUNNER_TEMP/pf-diff.log"
+
       - name: Verify the legacy schema, then record 0_init as already applied
         run: |
           set -euo pipefail
@@ -192,6 +279,65 @@ jobs:
           set -euo pipefail
           npx prisma migrate deploy
           npx prisma migrate status
+
+  # ---------------------------------------------------------------------------
+  # Backup / restore: pg_dump -> pg_restore into a fresh database, and rollback of an upgrade.
+  # ---------------------------------------------------------------------------
+  backup-restore:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: test-only-password
+          POSTGRES_DB: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Backend dependencies and Prisma client
+        working-directory: backend
+        run: |
+          npm install --no-audit --no-fund
+          npx prisma generate
+      - name: pg_dump / pg_restore on throwaway databases
+        env:
+          PG_ADMIN_URL: postgresql://postgres:test-only-password@localhost:5432/postgres
+          CONFIRM_THROWAWAY_SERVER: 'yes'
+        run: bash scripts/test-backup-restore.sh
+
+  # ---------------------------------------------------------------------------
+  # TEMPORARY: generates reproducible lockfiles (downloaded and committed, then this job is removed).
+  # ---------------------------------------------------------------------------
+  lockfiles:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Resolve dependencies without installing or running scripts
+        run: |
+          set -euo pipefail
+          node --version; npm --version
+          for d in backend frontend e2e; do
+            (cd "$d" && npm install --package-lock-only --ignore-scripts --no-audit --no-fund)
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lockfiles
+          path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+            e2e/package-lock.json
 
   # ---------------------------------------------------------------------------
   # Mobile journey in a phone-sized Chromium against the real backend and frontend.
