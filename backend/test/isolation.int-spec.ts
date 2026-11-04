@@ -5,11 +5,13 @@
  * The unit suite mocks Prisma, so it cannot detect a schema/migration mismatch, a missing
  * ownership check in a controller or a broken upload pipeline. This suite does.
  */
-import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { INestApplication } from '@nestjs/common';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { JwtService } from '@nestjs/jwt';
 import { Test } from '@nestjs/testing';
 import { AddressInfo } from 'net';
 import { AppModule } from '../src/app.module';
+import { configureApp } from '../src/app.setup';
 import { PrismaService } from '../src/prisma/prisma.service';
 
 // Node 20 provides fetch/FormData/Blob globally; avoid depending on DOM typings.
@@ -63,9 +65,9 @@ describe('plant journal API (real database, two accounts)', () => {
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
-    app = moduleRef.createNestApplication();
-    // Same global pipe as src/main.ts
-    app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
+    const nest = moduleRef.createNestApplication<NestExpressApplication>();
+    configureApp(nest); // same configuration as src/main.ts (CORS, validation pipe, headers)
+    app = nest;
     await app.init();
     await app.listen(0, '127.0.0.1');
     base = `http://127.0.0.1:${(app.getHttpServer().address() as AddressInfo).port}`;
