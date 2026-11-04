@@ -319,35 +319,6 @@ jobs:
         run: bash scripts/test-backup-restore.sh
 
   # ---------------------------------------------------------------------------
-  # TEMPORARY: refreshes lockfiles (Next.js patch bump, non-breaking audit fixes); removed once committed.
-  # ---------------------------------------------------------------------------
-  lockfiles:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-      - name: Refresh lockfiles without installing or running scripts
-        run: |
-          set -euo pipefail
-          (cd frontend && npm install --package-lock-only --ignore-scripts --no-audit --no-fund)
-          (cd backend && npm audit fix --package-lock-only --ignore-scripts --omit=dev || true)
-          for d in backend frontend; do
-            echo "=== audit after refresh: $d"
-            (cd "$d" && npm audit --omit=dev 2>&1 | grep -E "^(# npm audit|[a-z@/_.-]+ +[<>=0-9. |-]+$|Severity:|[0-9]+ vulnerabilit|found 0)" || true)
-          done
-      - name: Print the lockfiles (gzip + base64) with their SHA-256
-        run: |
-          set -euo pipefail
-          for f in backend/package-lock.json frontend/package-lock.json; do
-            echo "LOCKFILE-BEGIN $f $(sha256sum "$f" | cut -d' ' -f1) $(wc -c < "$f")"
-            gzip -9 -n -c "$f" | base64 -w 0 | fold -w 200
-            echo
-            echo "LOCKFILE-END $f"
-          done
-
-  # ---------------------------------------------------------------------------
   # Mobile journey in a phone-sized Chromium against the real backend and frontend.
   # ---------------------------------------------------------------------------
   e2e-mobile:
