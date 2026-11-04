@@ -69,7 +69,6 @@ model Plant {
   strain       Strain?       @relation(fields: [strainId], references: [id])
   growProjectId String?
   growProject  GrowProject?  @relation(fields: [growProjectId], references: [id], onDelete: SetNull)
-  growLogs     GrowLog[]
   plantLogs    PlantLog[]
   photos       PlantPhoto[]
   createdAt    DateTime      @default(now())
@@ -102,8 +101,6 @@ model GrowLog {
   humidity      Float?
   growProjectId String
   growProject   GrowProject @relation(fields: [growProjectId], references: [id])
-  plantId       String?
-  plant         Plant?       @relation(fields: [plantId], references: [id], onDelete: SetNull)
   createdAt     DateTime    @default(now())
 }
 

@@ -1,0 +1,13 @@
+{
+  "name": "canopyos-e2e",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Mobile end-to-end journey for the plant journal (throwaway database and test accounts only)",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.48.2",
+    "@types/node": "^20"
+  }
+}
