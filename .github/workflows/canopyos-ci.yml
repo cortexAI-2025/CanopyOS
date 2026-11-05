@@ -312,6 +312,21 @@ jobs:
         run: |
           npm ci --no-audit --no-fund
           npx prisma generate
+      - name: Use PostgreSQL 15 clients for the PostgreSQL 15 restore test
+        run: |
+          mkdir -p "$RUNNER_TEMP/pg15-bin" "$RUNNER_TEMP/canopy-backup-restore"
+          cat > "$RUNNER_TEMP/pg15-bin/psql" <<'SH'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          exec docker run --rm -i --network host --user "$(id -u):$(id -g)" \
+            -v "$RUNNER_TEMP:$RUNNER_TEMP" -w "$RUNNER_TEMP" \
+            postgres:15 "$(basename "$0")" "$@"
+          SH
+          cp "$RUNNER_TEMP/pg15-bin/psql" "$RUNNER_TEMP/pg15-bin/pg_dump"
+          cp "$RUNNER_TEMP/pg15-bin/psql" "$RUNNER_TEMP/pg15-bin/pg_restore"
+          chmod +x "$RUNNER_TEMP/pg15-bin/"*
+          echo "$RUNNER_TEMP/pg15-bin" >> "$GITHUB_PATH"
+          echo "WORK_DIR=$RUNNER_TEMP/canopy-backup-restore" >> "$GITHUB_ENV"
       - name: pg_dump / pg_restore on throwaway databases
         env:
           PG_ADMIN_URL: postgresql://postgres:test-only-password@localhost:5432/postgres

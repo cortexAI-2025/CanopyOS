@@ -1,0 +1,87 @@
+name: CanopyOS Android APK
+on:
+  workflow_dispatch:
+  push:
+    branches: ["codex/android-apk-20261105"]
+    paths: ["android/**", "scripts/test-android-shell.py", ".github/workflows/android-apk.yml"]
+  pull_request:
+    paths: ["android/**", "scripts/test-android-shell.py", ".github/workflows/android-apk.yml"]
+permissions:
+  contents: read
+concurrency:
+  group: canopy-android-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+      - name: Install Android SDK components
+        run: |
+          SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -path '*/bin/sdkmanager' -type f | sort -V | tail -n 1)
+          test -n "$SDKMANAGER"
+          printf 'y\n%.0s' {1..100} | "$SDKMANAGER" --licenses > /dev/null
+          "$SDKMANAGER" "platforms;android-35" "build-tools;34.0.0" "platform-tools"
+      - name: Lint and build the Android beta
+        run: gradle -p android :app:lintDebug :app:assembleDebug --no-daemon --max-workers=2
+      - name: Verify signature and record provenance
+        run: |
+          mkdir -p apk
+          cp android/app/build/outputs/apk/debug/app-debug.apk apk/CanopyOS-Android-beta.apk
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose --print-certs apk/CanopyOS-Android-beta.apk | tee apk/signature.txt
+          "$ANDROID_HOME/build-tools/34.0.0/aapt" dump badging apk/CanopyOS-Android-beta.apk > apk/package.txt
+          git rev-parse HEAD > apk/commit.txt
+          cd apk
+          sha256sum CanopyOS-Android-beta.apk > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CanopyOS-Android-beta-${{ github.sha }}
+          path: apk/
+          if-no-files-found: error
+          retention-days: 90
+  acceptance:
+    needs: apk
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: CanopyOS-Android-beta-${{ github.sha }}
+          path: apk/
+      - name: Verify APK integrity
+        working-directory: apk
+        run: sha256sum -c SHA256SUMS
+      - name: Start a local HTML fixture
+        run: |
+          mkdir -p /tmp/canopy-fixture/plants
+          cat > /tmp/canopy-fixture/plants/index.html <<'HTML'
+          <!doctype html><html lang="fr"><meta name="viewport" content="width=device-width,initial-scale=1">
+          <h1>CanopyOS Android test</h1>
+          <label>Choisir une photo<input type="file" accept="image/*"></label>
+          </html>
+          HTML
+          python3 -m http.server 8765 --bind 127.0.0.1 --directory /tmp/canopy-fixture > /tmp/canopy-fixture.log 2>&1 &
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          disable-animations: true
+          script: python3 -u scripts/test-android-shell.py apk/CanopyOS-Android-beta.apk
